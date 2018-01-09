@@ -5,6 +5,9 @@
 #include <thread>
 #include <chrono>
 #include <list>
+#include <string>
+#include <functional>
+#include <cmath>
 
 namespace dr
 {
@@ -13,6 +16,7 @@ class TDeltaTimerExecutor
 {
 public:
     typedef void (*runFunction)();
+    typedef void (*TLogger)(int,const std::string&);
     using duration = std::chrono::duration<int, std::ratio<1, 100000000>>;
     using timePoint = std::chrono::time_point<std::chrono::system_clock,std::chrono::microseconds>;
 
@@ -25,8 +29,10 @@ public:
     void Remove(size_t _ID);
 
     void Start();
-    void Stop() {}
+    void Stop();
     void ReschedulingRestart() {}
+
+    void RegLogFunction(TLogger _Logger) { log=_Logger;}
 
 private:
     void run();
@@ -36,10 +42,13 @@ private:
         runFunction func;
         duration delta;
     };
+    TLogger log;
     std::mutex m_mtx;
     std::thread* m_pRunnable;
     std::condition_variable m_cv;
+    std::mutex m_cvMtx;
     std::list<SItem> m_Queue;
+    bool m_Running;
 };
 
 }
