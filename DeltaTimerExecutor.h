@@ -17,14 +17,14 @@ class TDeltaTimerExecutor
 public:
     typedef void (*runFunction)();
     typedef void (*TLogger)(int,const std::string&);
-    using duration = std::chrono::duration<int, std::ratio<1, 100000000>>;
-    using timePoint = std::chrono::time_point<std::chrono::system_clock,std::chrono::microseconds>;
+    using Delta = std::chrono::milliseconds;
+    using TimePoint = std::chrono::time_point<std::chrono::system_clock>;
 
     TDeltaTimerExecutor();
     ~TDeltaTimerExecutor();
 
-    size_t Enque(duration _delay, runFunction _func);
-    size_t Enque(timePoint _timePoint, runFunction _func);
+    size_t Enque(Delta _delay, runFunction _func);
+    size_t Enque(TimePoint _timePoint, runFunction _func);
 
     void Remove(size_t _ID);
 
@@ -40,7 +40,8 @@ private:
     {
         size_t id;
         runFunction func;
-        duration delta;
+        Delta delta;
+        operator std::string() const { return "id:" + std::to_string(id) + " delta:" + std::to_string(delta.count()) + "ms";}
     };
     TLogger log;
     std::mutex m_mtx;
@@ -49,6 +50,8 @@ private:
     std::mutex m_cvMtx;
     std::list<SItem> m_Queue;
     bool m_Running;
+    static size_t s_IdPool;
+    TimePoint m_StartTime;
 };
 
 }
