@@ -8,9 +8,13 @@
 #include <string>
 #include <functional>
 #include <cmath>
+#include "date.h"
 
 namespace dr
 {
+
+using namespace std;
+using namespace chrono;
 
 class TDeltaTimerExecutor
 {
@@ -35,13 +39,17 @@ public:
     void RegLogFunction(TLogger _Logger) { log=_Logger;}
 
 private:
+    void dPrintDeltaList();
     void run();
     struct SItem
     {
         size_t id;
         runFunction func;
-        Delta delta;
-        operator std::string() const { return "id:" + std::to_string(id) + " delta:" + std::to_string(delta.count()) + "ms";}
+        TimePoint time;
+        std::string delta() { return date::format("%T", time- system_clock::now());}
+        operator std::string() const { return "id:" + std::to_string(id) +
+                    " delta:" + date::format("%T",time - system_clock::now())
+                    + " Time[" + date::format("%F %T", time) + "]";}
     };
     TLogger log;
     std::mutex m_mtx;

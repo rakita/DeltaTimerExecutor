@@ -1,5 +1,7 @@
 #include "DeltaTimerExecutor.h"
 #include <iostream>
+#include <iomanip>
+#include "date.h"
 
 namespace dr
 {
@@ -45,74 +47,89 @@ void TDeltaTimerExecutor::Stop()
 
 size_t TDeltaTimerExecutor::Enque(Delta _delay, runFunction _func)
 {
-    std::unique_lock<std::mutex> lk(m_mtx);
-    SItem newItem;
-    newItem.func=_func;
-    newItem.id=++s_IdPool;
-    Delta deltaSum= chrono::seconds(0);
-    bool isInserted=false;
-    bool isInsertedFirst=false;
-    for(std::list<SItem>::iterator it=m_Queue.begin(); it != m_Queue.end(); ++it)
-    {
-        deltaSum+=(*it).delta;
-        if(deltaSum<_delay) continue;
-        isInserted=true;
-        isInsertedFirst=it==m_Queue.begin();
-        Delta rescheduledDelta=deltaSum-_delay;
-        newItem.delta= (*it).delta-rescheduledDelta;
-        (*it).delta=rescheduledDelta;
-        m_Queue.insert(it,newItem);
-        if(isInsertedFirst) m_StartTime=std::chrono::system_clock::now();
-        break;
-    }
-    if(!isInserted)
-    {
-        isInsertedFirst=m_Queue.empty();
-        newItem.delta=_delay-deltaSum;
-        m_Queue.push_back(newItem);
-        if(isInsertedFirst) m_StartTime=std::chrono::system_clock::now();
-    }
-    if(isInsertedFirst) m_cv.notify_all();
+    TimePoint time= chrono::system_clock::now() + _delay;
+    return Enque(time,_func);
 }
 
 size_t TDeltaTimerExecutor::Enque(TimePoint _timePoint, runFunction _func)
 {
-    //Enque(std::chrono::time_point()-_timePoint, _func);
+    std::unique_lock<std::mutex> lk(m_mtx);
+    SItem newItem;
+    newItem.func=_func;
+    newItem.id=++s_IdPool;
+    newItem.time=_timePoint;
+    bool isInserted=false;
+    bool isInsertedFirst=false;
+
+    for(std::list<SItem>::iterator it=m_Queue.begin(); it != m_Queue.end(); ++it)
+    {
+        if((*it).time>=_timePoint)
+        {
+            isInserted=true;
+            isInsertedFirst=it==m_Queue.begin();
+            m_Queue.insert(it,newItem);
+            break;
+        }
+    }
+    if(!isInserted)
+    {
+        isInsertedFirst=m_Queue.empty();
+        m_Queue.push_back(newItem);
+        m_StartTime=std::chrono::system_clock::now();
+    }
+    if(isInsertedFirst) m_cv.notify_all();
+    return newItem.id;
 }
 
 void TDeltaTimerExecutor::Remove(size_t _ID)
 {
+    std::unique_lock<std::mutex> lk(m_mtx);
+    for(auto it=m_Queue.cbegin(); it != m_Queue.cend();++it)
+    {
+        if(it->id==_ID)
+        {
+            m_Queue.erase(it);
+            break;
+        }
+    }
+}
 
+
+void TDeltaTimerExecutor::dPrintDeltaList()
+{
+    stringstream ss;
+    ss<<"Delta list items:"<<endl;
+    for(SItem item : m_Queue)
+    {
+        ss<<(string)item<<endl;
+    }
+    log(5,ss.str());
 }
 
 void TDeltaTimerExecutor::run()
 {
     log(3,"Thread is running");
-    Delta sleep=Delta(Delta::max());
+    TimePoint time;
     while(m_Running)
     {
+        std::unique_lock<std::mutex> lk(m_mtx);
+        //log(4,"Waiting for event");
+
+        if(m_Queue.empty()) time=chrono::system_clock::now()+chrono::hours(1);
+        else time = m_Queue.front().time;
+
+        //log(4,"Wait until:" + date::format("%F %T", time));
+        m_cv.wait_until(lk,time);
+
+        if(m_Queue.empty()) continue;
+        SItem& item = m_Queue.front();
+        if(item.time<= chrono::system_clock::now())
         {
-            std::unique_lock<std::mutex> lk(m_mtx);
-            log(4,"Waiting for event");
-
-            m_cv.wait_for(lk,sleep);
-            if(m_Queue.empty()) continue;
-            SItem& item = m_Queue.front();
-            auto timestamp = std::chrono::system_clock::now()-m_StartTime;
-            Delta currentDelta = chrono::duration_cast< Delta>(timestamp);
-            if(currentDelta>= item.delta)
-            {
-                log(5,"Executing item:" + (std::string)item);
-                (*(item.func))();
-                m_Queue.pop_front();
-                m_StartTime=std::chrono::system_clock::now();
-            }
-            else
-            {
-                sleep=item.delta-currentDelta;
-            }
-
+            log(5,"Executing item:" + (std::string)item);
+            (*(item.func))();
+            m_Queue.pop_front();
         }
+        //dPrintDeltaList();
     }
 }
 
